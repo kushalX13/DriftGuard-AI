@@ -1,0 +1,37 @@
+{
+  "model": "ml/models/severity_model.pkl",
+  "generated_at": "2026-02-16T22:01:43.189387+00:00",
+  "run_id": "db4680c5f83b4835906e7236548567ef",
+  "scores": [
+    {
+      "finding_key": "DG-SG-OPEN-SSH::aws_security_group.open_ingress",
+      "predicted_severity": "CRITICAL",
+      "risk_score": 0.9884222005896077,
+      "confidence": 0.9623884852157752
+    },
+    {
+      "finding_key": "DG-RDS-NO-ENCRYPTION::aws_db_instance.example",
+      "predicted_severity": "HIGH",
+      "risk_score": 0.7434886567775436,
+      "confidence": 0.8157415031013157
+    },
+    {
+      "finding_key": "DG-S3-NO-PUBLIC-ACCESS-BLOCK::aws_s3_bucket.bad_bucket",
+      "predicted_severity": "HIGH",
+      "risk_score": 0.759718361306454,
+      "confidence": 0.8348798399236175
+    },
+    {
+      "finding_key": "DG-S3-NO-ENCRYPTION::aws_s3_bucket.bad_bucket",
+      "predicted_severity": "HIGH",
+      "risk_score": 0.7403100090097299,
+      "confidence": 0.8266387307938927
+    },
+    {
+      "finding_key": "DG-SG-OPEN-HTTP::aws_security_group.open_ingress",
+      "predicted_severity": "CRITICAL",
+      "risk_score": 0.9366222069010255,
+      "confidence": 0.8924057592832684
+    }
+  ]
+}

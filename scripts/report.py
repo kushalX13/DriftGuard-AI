@@ -1,5 +1,6 @@
 """Generate reports/report.md from findings + explanations (clean layout for PR/Pages)."""
 
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +40,7 @@ def _summary_table(summary: dict) -> str:
     }
 
 
-def _finding_section(finding: dict) -> str:
+def _finding_section(finding: dict, score: dict | None = None) -> str:
     """One collapsible section for a finding (GitHub <details>/<summary>)."""
     severity = finding.get("severity", "INFO")
     resource = finding.get("resource", "—")
@@ -62,6 +63,19 @@ def _finding_section(finding: dict) -> str:
         f"- **Message:** {message}",
         "",
     ]
+    if score:
+        conf = score.get("confidence")
+        low_confidence = isinstance(conf, (int, float)) and conf < 0.6
+        if low_confidence:
+            body_parts.append("- **Predicted severity:** (low confidence)")
+        else:
+            body_parts.append(f"- **Predicted severity:** {score.get('predicted_severity', '—')}")
+        if not low_confidence:
+            rs = score.get("risk_score")
+            body_parts.append(f"- **Risk score:** {rs:.2f}" if isinstance(rs, (int, float)) else "- **Risk score:** —")
+            if isinstance(conf, (int, float)):
+                body_parts.append(f"- **Confidence:** {conf:.2f}")
+        body_parts.append("")
     if why:
         body_parts.append("#### Why it matters\n")
         body_parts.append(why)
@@ -91,19 +105,33 @@ def _finding_section(finding: dict) -> str:
 """
 
 
-def build_markdown(data: dict, run_timestamp: datetime | None = None) -> str:
-    """Build full report markdown from explanations report dict."""
+def _finding_key(finding: dict) -> str:
+    """Stable key for joining risk_scores to findings. Must match ml.predict._finding_key."""
+    fid = finding.get("id") or ""
+    resource = finding.get("resource") or ""
+    return f"{fid}::{resource}"
+
+
+def build_markdown(
+    data: dict,
+    run_timestamp: datetime | None = None,
+    risk_scores_by_key: dict[str, dict] | None = None,
+) -> str:
+    """Build full report markdown. risk_scores_by_key maps finding_key -> {predicted_severity, risk_score}."""
     if run_timestamp is None:
         run_timestamp = datetime.now(timezone.utc)
     ts = run_timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
 
     summary = data.get("summary") or {}
     findings = data.get("findings") or []
+    by_key = risk_scores_by_key or {}
 
     parts = [
         "# DriftGuard Policy Report",
         "",
         f"*Generated: {ts}*",
+        "",
+        "**Policy severity is authoritative. ML risk scoring is experimental and may disagree.**",
         "",
         "---",
         "",
@@ -116,7 +144,9 @@ def build_markdown(data: dict, run_timestamp: datetime | None = None) -> str:
         "",
     ]
     for f in findings:
-        parts.append(_finding_section(f))
+        key = _finding_key(f)
+        score = by_key.get(key)
+        parts.append(_finding_section(f, score))
         parts.append("")
 
     return "\n".join(parts).strip() + "\n"
@@ -126,14 +156,18 @@ def run(
     explanations_path: str | Path,
     output_path: str | Path,
     findings_path: str | Path | None = None,
+    risk_scores_path: str | Path | None = None,
+    include_risk_scores: bool = True,
 ) -> str:
     """
-    Load explanations.json (or findings.json if explanations missing), generate report.md.
-    Returns the generated markdown.
+    Load explanations.json (or findings.json if explanations missing), optionally risk_scores.json.
+    Generate report.md. Returns the generated markdown.
+    When include_risk_scores is False (e.g. policy-only run), risk scores are not loaded.
     """
     explanations_path = Path(explanations_path)
     output_path = Path(output_path)
     findings_path = Path(findings_path) if findings_path else output_path.parent / "findings.json"
+    path_for_scores = Path(risk_scores_path) if risk_scores_path else output_path.parent / "risk_scores.json"
 
     if explanations_path.exists():
         report = ExplanationsReport.model_validate_json(explanations_path.read_text(encoding="utf-8"))
@@ -141,7 +175,6 @@ def run(
     elif findings_path.exists():
         findings_report = FindingsReport.model_validate_json(findings_path.read_text(encoding="utf-8"))
         data = findings_report.model_dump()
-        # No explanation/citations; findings have empty explanation and citations
         for f in data.get("findings") or []:
             f.setdefault("explanation", "")
             f.setdefault("citations", [])
@@ -150,7 +183,18 @@ def run(
             f"Neither explanations nor findings file found. Tried: {explanations_path}, {findings_path}"
         )
 
-    markdown = build_markdown(data)
+    risk_scores_by_key: dict[str, dict] = {}
+    if include_risk_scores and path_for_scores.exists():
+        try:
+            raw = json.loads(path_for_scores.read_text(encoding="utf-8"))
+            for s in raw.get("scores") or []:
+                key = s.get("finding_key")
+                if key:
+                    risk_scores_by_key[key] = s
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    markdown = build_markdown(data, risk_scores_by_key=risk_scores_by_key)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     return markdown

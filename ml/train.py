@@ -1,5 +1,9 @@
-"""Train a baseline severity classifier and log to MLflow."""
+"""Train a baseline severity classifier and log to MLflow.
 
+label_severity is 0-4: CRITICAL=0, HIGH=1, MEDIUM=2, LOW=3, INFO=4 (same as ml.dataset.SEVERITY_TO_INT).
+"""
+
+import json
 from pathlib import Path
 
 import joblib
@@ -11,7 +15,7 @@ import mlflow.sklearn
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, recall_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
@@ -44,9 +48,9 @@ def build_pipeline(model_type: str = "LogisticRegression"):
     )
     if model_type == "RandomForest":
         from sklearn.ensemble import RandomForestClassifier
-        clf = RandomForestClassifier(random_state=DEFAULT_SEED)
+        clf = RandomForestClassifier(random_state=DEFAULT_SEED, class_weight="balanced")
     else:
-        clf = LogisticRegression(max_iter=2000, random_state=DEFAULT_SEED)
+        clf = LogisticRegression(max_iter=5000, random_state=DEFAULT_SEED, class_weight="balanced")
     return Pipeline(steps=[("preprocessor", preprocessor), ("classifier", clf)])
 
 
@@ -79,15 +83,26 @@ def run(
     y_pred = pipeline.predict(X_val)
     accuracy = accuracy_score(y_val, y_pred)
     macro_f1 = f1_score(y_val, y_pred, average="macro", zero_division=0)
+    # Per-class recall (0=CRITICAL .. 3=LOW .. 4=INFO); class 3 was under-represented
+    recall_per_class = recall_score(y_val, y_pred, average=None, zero_division=0, labels=[0, 1, 2, 3, 4])
+    recall_by_label = dict(zip([0, 1, 2, 3, 4], (float(r) for r in recall_per_class)))
+    recall_class_3 = recall_by_label.get(3, 0.0)
 
     mlflow.set_experiment("driftguard-risk")
+    run_id = None
     with mlflow.start_run():
+        run_id = mlflow.active_run().info.run_id
         mlflow.log_params({
             "model_type": model_type,
             "seed": seed,
             "rows": n_rows,
+            "class_weight": "balanced",
         })
-        mlflow.log_metrics({"accuracy": accuracy, "macro_f1": macro_f1})
+        mlflow.log_metrics({
+            "accuracy": accuracy,
+            "macro_f1": macro_f1,
+            "recall_class_3_low": recall_class_3,
+        })
 
         cm = confusion_matrix(y_val, y_pred)
         fig, ax = plt.subplots()
@@ -110,5 +125,8 @@ def run(
 
     model_out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, model_out)
+    if run_id:
+        meta_path = model_out.with_suffix(model_out.suffix + ".meta.json")
+        meta_path.write_text(json.dumps({"run_id": run_id}, indent=2), encoding="utf-8")
 
-    return {"accuracy": accuracy, "macro_f1": macro_f1, "rows": n_rows}
+    return {"accuracy": accuracy, "macro_f1": macro_f1, "recall_class_3": recall_class_3, "rows": n_rows}

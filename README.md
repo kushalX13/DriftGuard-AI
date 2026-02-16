@@ -1,6 +1,6 @@
 # DriftGuard
 
-**Catch Terraform misconfigs before apply.** DriftGuard runs OPA/Conftest policies on your plan JSON, normalizes findings, attaches remediation docs (no LLM), and emits a PR-ready report. One command locally or in CI.
+**Catch Terraform misconfigs before apply.** DriftGuard runs OPA/Conftest policies on your plan JSON, normalizes findings, attaches remediation docs (no LLM), and emits a PR-ready report. One command locally or in CI. **Policy engine is authoritative; ML risk scoring is optional and experimental.**
 
 ---
 
@@ -42,8 +42,10 @@ python -m scripts.cli plan --tf-dir infra --out infra/tfplan.json --fallback-sam
 #    Without Terraform: skip Terraform and copy sample
 python -m scripts.cli plan --tf-dir infra --out infra/tfplan.json --fallback-sample policies/examples/sample_plan.json --sample-only
 
-# 2. Generate reports (policy → explain → report)
+# 2. Generate reports (policy → explain → report; policy-only by default)
 python -m scripts.cli run --plan infra/tfplan.json
+# Optional: add ML severity/risk scoring
+python -m scripts.cli run --plan infra/tfplan.json --enable-ml
 ```
 
 Then open `reports/report.md`. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
@@ -65,11 +67,14 @@ On every **pull request** (to `main` or `master`):
 
 1. **Checkout** → **Python 3.11** → **Conftest** (pinned) → **Terraform** (setup-terraform).
 2. **Terraform:** `fmt -check`, `init -backend=false`, `validate`. Then `plan -out=tfplan`; if that fails (e.g. no AWS creds in CI), the workflow uses `policies/examples/sample_plan.json` so the rest still runs.
-3. **DriftGuard pipeline:** `python -m scripts.cli run --plan infra/tfplan.json` → produces `reports/findings.json`, `reports/explanations.json`, `reports/report.md`.
-4. **Artifact:** `reports/` is uploaded as `driftguard-reports` (7-day retention). The report is also printed in the job log.
-5. **PR comment:** If the PR is from the **same repo** (not a fork), the workflow posts or updates a comment with the report body. Fork PRs skip the comment but still get the artifact and logs.
+3. **ML (opt-in):** The pipeline is **policy-only by default**. Use `--enable-ml` to run the severity model when `ml/models/severity_model.pkl` exists; then the report includes predicted severity and risk scores.
+4. **DriftGuard pipeline:** `python -m scripts.cli run --plan infra/tfplan.json` → produces `reports/findings.json`, `reports/explanations.json`, `reports/report.md`. With `--enable-ml`: also `reports/risk_scores.json` and ML block in the report.
+5. **Artifact:** `reports/` is uploaded as `driftguard-reports` (7-day retention). The report is also printed in the job log.
+6. **PR comment:** If the PR is from the **same repo** (not a fork), the workflow posts or updates a comment with the report body. Fork PRs skip the comment but still get the artifact and logs.
 
 No AWS credentials or secrets required for CI; the “plan fails → sample fallback” keeps the pipeline green and demo-friendly.
+
+**ML scoring in CI:** To have the report show predicted severity and risk scores in CI, either (1) check in a baseline model: `python -m scripts.build_baseline_model` then commit `ml/models/`, or (2) run the **Train model** workflow (Actions → Train model → Run workflow) once; CI will use the uploaded model artifact when present.
 
 ---
 
@@ -155,6 +160,19 @@ driftguard-ai/
 ├── Makefile               # install, fmt, lint, test, run-sample
 └── README.md
 ```
+
+---
+
+## Severity classifier (ML lifecycle)
+
+The pipeline optionally runs a severity classifier (see **ML scoring in CI**). We treat class imbalance explicitly:
+
+- **Baseline (no balancing):** Original synthetic data and default classifier → **macro-F1 ~0.70**, class 3 (LOW) recall **0** (minority class ignored).
+- **Improved run:** `class_weight="balanced"`, synthetic data rebalanced with more class 3 (LOW), new run logged to MLflow.
+  - **Improved macro-F1: 0.90** (reproduce with `python -m scripts.cli synth` then `python -m scripts.cli train`).
+  - **Class 3 (LOW) recall: 0 → 0.97** (minority class now learned).
+
+That’s the full ML lifecycle story: baseline → fix imbalance → log improved run → report better metrics.
 
 ---
 

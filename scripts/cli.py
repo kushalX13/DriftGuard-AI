@@ -27,6 +27,11 @@ try:
 except ImportError:
     train_run = None
 
+try:
+    from ml.predict import run as predict_run
+except ImportError:
+    predict_run = None
+
 app = typer.Typer(
     name="driftguard",
     help="Terraform drift detection and policy enforcement.",
@@ -217,8 +222,13 @@ def run(
         envvar="FAIL_ON",
         help="Fail the run (exit 1) if findings at this severity or higher exist (e.g. critical, high). Use 'none' or leave unset to never fail. Env: FAIL_ON.",
     ),
+    enable_ml: bool = typer.Option(
+        False,
+        "--enable-ml",
+        help="Run ML severity/risk scoring if model exists; default is policy-only.",
+    ),
 ) -> None:
-    """Full pipeline: conftest → findings → explain → report. Use --fail-on to gate on severity (e.g. critical)."""
+    """Full pipeline: policy → explain → report (policy-only by default). Use --enable-ml to add ML risk scoring."""
     console = Console()
     plan_path = Path(plan)
     if not plan_path.exists():
@@ -227,15 +237,32 @@ def run(
 
     findings_path = REPORTS_DIR / "findings.json"
     explanations_path = REPORTS_DIR / "explanations.json"
+    risk_scores_path = REPORTS_DIR / "risk_scores.json"
     report_path = REPORTS_DIR / "report.md"
+    model_path = Path("ml/models/severity_model.pkl")
 
     try:
         console.print("[dim]1/3[/dim] Policy (Conftest) → findings.json")
         policy_run(plan_path, POLICY_PATH, findings_path)
         console.print("[dim]2/3[/dim] Explain (retrieval) → explanations.json")
         explain_run(findings_path, explanations_path)
-        console.print("[dim]3/3[/dim] Report → report.md")
-        report_run(explanations_path, report_path, findings_path=findings_path)
+        step = 3
+        ml_ran = False
+        if enable_ml and model_path.exists() and predict_run is not None:
+            ml_ran = predict_run(findings_path, model_path, risk_scores_path)
+            if ml_ran:
+                console.print("[dim]3/4[/dim] Predict (ML) → risk_scores.json")
+                step = 4
+        if step == 3:
+            console.print("[dim]3/3[/dim] Report → report.md")
+        else:
+            console.print("[dim]4/4[/dim] Report → report.md")
+        report_run(
+            explanations_path,
+            report_path,
+            findings_path=findings_path,
+            include_risk_scores=enable_ml,
+        )
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
@@ -250,6 +277,8 @@ def run(
     table.add_column("Path")
     table.add_row("Findings", str(findings_path))
     table.add_row("Explanations", str(explanations_path))
+    if enable_ml and risk_scores_path.exists():
+        table.add_row("Risk scores", str(risk_scores_path))
     table.add_row("Report", str(report_path))
     console.print(table)
 
@@ -331,7 +360,9 @@ def train(
     try:
         metrics = train_run(csv, model_out, seed=seed, model_type=model_type)
         console.print(f"Saved [green]{model_out}[/green]")
-        console.print(f"accuracy={metrics['accuracy']:.4f} macro_f1={metrics['macro_f1']:.4f} (rows={metrics['rows']})")
+        rec3 = metrics.get("recall_class_3")
+        rec3_str = f" recall_class_3={rec3:.2f}" if rec3 is not None else ""
+        console.print(f"accuracy={metrics['accuracy']:.4f} macro_f1={metrics['macro_f1']:.4f}{rec3_str} (rows={metrics['rows']})")
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)

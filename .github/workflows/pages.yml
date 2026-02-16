@@ -70,6 +70,15 @@ jobs:
           fi
           echo "plan_path=infra/tfplan.json" >> "$GITHUB_OUTPUT"
 
+      - name: Use ML model (if available)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: train.yml
+          name: severity-model
+          path: ml/models
+          if_no_artifact_found: ignore
+
       - name: Run DriftGuard pipeline
         run: python -m scripts.cli run --plan "${{ steps.plan.outputs.plan_path }}" --fail-on "${{ env.FAIL_ON }}"
 

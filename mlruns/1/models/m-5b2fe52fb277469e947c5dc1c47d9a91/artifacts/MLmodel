@@ -1,0 +1,23 @@
+artifact_path: /Users/kushal/Projects/Driftguard-ai/mlruns/1/models/m-5b2fe52fb277469e947c5dc1c47d9a91/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.12.9
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.7.2
+    skops_trusted_types: null
+mlflow_version: 3.9.0
+model_id: m-5b2fe52fb277469e947c5dc1c47d9a91
+model_size_bytes: 3263
+model_uuid: m-5b2fe52fb277469e947c5dc1c47d9a91
+prompts: null
+run_id: c63a3531524f4a52bb28378dc7daf3b8
+utc_time_created: '2026-02-16 20:33:51.674083'

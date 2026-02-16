@@ -1,0 +1,51 @@
+# Train severity model (manual or on synthetic data changes).
+# Run "Train model" via Actions → Train model → Run workflow.
+# Uploads ml/models/ as artifact; DriftGuard CI can use it for ML scoring in the report.
+
+name: Train model
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "ml/data/synthetic_findings.csv"
+      - "ml/train.py"
+      - "ml/dataset.py"
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Generate synthetic data (if missing)
+        run: |
+          if [ ! -f ml/data/synthetic_findings.csv ]; then
+            python -m scripts.cli synth --rows 1500 --out ml/data/synthetic_findings.csv
+          fi
+
+      - name: Train model
+        run: python -m scripts.cli train --csv ml/data/synthetic_findings.csv --model-out ml/models/severity_model.pkl
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: severity-model
+          path: ml/models/
+          retention-days: 30
