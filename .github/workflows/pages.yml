@@ -63,13 +63,8 @@ jobs:
         working-directory: infra
         run: |
           set -eu
-          terraform plan -out=tfplan -no-color || true
-          if [ -f tfplan ]; then
-            terraform show -json tfplan > tfplan.json
-          else
-            echo "Plan failed (no AWS creds in CI); using sample plan"
-            cp ../policies/examples/sample_plan.json tfplan.json
-          fi
+          # Pages demo: always use sample plan so the live site shows a full report (no AWS creds in CI)
+          cp ../policies/examples/sample_plan.json tfplan.json
           echo "plan_path=infra/tfplan.json" >> "$GITHUB_OUTPUT"
 
       - name: Use ML model (if available)
