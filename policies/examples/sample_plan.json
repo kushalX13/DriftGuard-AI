@@ -1,0 +1,54 @@
+{
+  "format_version": "1.0",
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.bad_bucket",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "bad_bucket",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "bucket": "my-open-bucket" }
+      }
+    },
+    {
+      "address": "aws_security_group.open_ingress",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "open_ingress",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "allow-all-in",
+          "description": "Allow all inbound (deliberately insecure)",
+          "ingress": [
+            {
+              "from_port": 0,
+              "to_port": 65535,
+              "protocol": "tcp",
+              "cidr_blocks": ["0.0.0.0/0"]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "aws_db_instance.example",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "example",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "identifier": "example-db",
+          "engine": "postgres",
+          "allocated_storage": 20,
+          "instance_class": "db.t3.micro"
+        }
+      }
+    }
+  ]
+}

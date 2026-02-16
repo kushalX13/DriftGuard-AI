@@ -1,25 +1,170 @@
-# Driftguard AI
+# DriftGuard
 
-Infrastructure drift detection and policy enforcement with OPA Rego rules and RAG-backed policy explanations.
+**Catch Terraform misconfigs before apply.** DriftGuard runs OPA/Conftest policies on your plan JSON, normalizes findings, attaches remediation docs (no LLM), and emits a PR-ready report. One command locally or in CI.
 
-## Structure
+---
+
+## Architecture
+
+```
+  infra/*.tf  ──►  terraform plan -out=tfplan
+                          │
+                          ▼
+              terraform show -json tfplan  ──►  tfplan.json
+                          │
+                          ▼
+              Conftest (OPA Rego)  ──►  findings.json  (severity, resource, rule id)
+                          │
+                          ▼
+              Doc retrieval (docs/*.md)  ──►  explanations.json  (why it matters, how to fix)
+                          │
+                          ▼
+              Report generator  ──►  report.md  (summary table + collapsible findings)
+```
+
+**Policies today:** deny security groups with 0.0.0.0/0 on SSH (22) or RDP (3389); warn S3 buckets without server-side encryption. Extend by adding Rego in `policies/rego/` and docs in `docs/`.
+
+---
+
+## Try it locally
+
+No AWS credentials (and optionally no Terraform) needed: one-command demo.
+
+```bash
+# Install (once)
+make install
+# Conftest (once, for run): brew install conftest
+
+# 1. Produce plan JSON (no manual Terraform steps)
+#    With Terraform installed: uses sample if plan fails (e.g. no AWS creds)
+python -m scripts.cli plan --tf-dir infra --out infra/tfplan.json --fallback-sample policies/examples/sample_plan.json
+
+#    Without Terraform: skip Terraform and copy sample
+python -m scripts.cli plan --tf-dir infra --out infra/tfplan.json --fallback-sample policies/examples/sample_plan.json --sample-only
+
+# 2. Generate reports (policy → explain → report)
+python -m scripts.cli run --plan infra/tfplan.json
+```
+
+Then open `reports/report.md`. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
+
+**Optional step-by-step:**
+
+```bash
+python -m scripts.cli plan --tf-dir infra -o infra/tfplan.json [--fallback-sample policies/examples/sample_plan.json]
+python -m scripts.cli policy -p infra/tfplan.json -o reports/findings.json
+python -m scripts.cli explain -f reports/findings.json -o reports/explanations.json
+python -m scripts.cli report -e reports/explanations.json -o reports/report.md
+```
+
+---
+
+## CI behavior
+
+On every **pull request** (to `main` or `master`):
+
+1. **Checkout** → **Python 3.11** → **Conftest** (pinned) → **Terraform** (setup-terraform).
+2. **Terraform:** `fmt -check`, `init -backend=false`, `validate`. Then `plan -out=tfplan`; if that fails (e.g. no AWS creds in CI), the workflow uses `policies/examples/sample_plan.json` so the rest still runs.
+3. **DriftGuard pipeline:** `python -m scripts.cli run --plan infra/tfplan.json` → produces `reports/findings.json`, `reports/explanations.json`, `reports/report.md`.
+4. **Artifact:** `reports/` is uploaded as `driftguard-reports` (7-day retention). The report is also printed in the job log.
+5. **PR comment:** If the PR is from the **same repo** (not a fork), the workflow posts or updates a comment with the report body. Fork PRs skip the comment but still get the artifact and logs.
+
+No AWS credentials or secrets required for CI; the “plan fails → sample fallback” keeps the pipeline green and demo-friendly.
+
+---
+
+## Demo report (GitHub Pages)
+
+On **push to main** (or **master**), the **Pages** workflow runs the pipeline, converts `report.md` to HTML, and deploys to GitHub Pages. You get a stable CV demo link:
+
+**`https://<owner>.github.io/<repo>/`**
+
+(e.g. `https://kushalx13.github.io/DriftGuard-AI/`)
+
+**One-time setup:** In the repo go to **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**. After the first push to main, the workflow will publish the report; the root URL serves the latest report as a clean HTML page.
+
+---
+
+## Sample report output
+
+What `reports/report.md` looks like (summary + one finding expanded):
+
+```markdown
+# DriftGuard Policy Report
+
+*Generated: 2025-02-15 14:30:00 UTC*
+
+---
+
+## Summary
+
+| Severity | Count |
+|---------|-------|
+| Critical | 1 |
+| High | 1 |
+| Medium | 0 |
+| Low | 0 |
+| Info | 0 |
+
+---
+
+## Findings
+
+<details>
+<summary>**CRITICAL** — `aws_security_group.open_ingress` — Security group allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk</summary>
+
+- **Resource:** `aws_security_group.open_ingress`
+- **Rule:** `DG-SG-OPEN-SSH`
+- **Message:** Security group allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk
+
+#### Why it matters
+
+SSH (22) and RDP (3389) are high-value targets for brute-force and credential stuffing. Exposing them to the world greatly increases compromise risk. Compliance frameworks (e.g. CIS, PCI-DSS) typically require restricting administrative access to known IP ranges.
+
+#### How to fix
+
+Restrict ingress to a known CIDR (e.g. VPN or bastion). Add an ingress block with `cidr_blocks = ["10.0.0.0/8"]` (or your VPN range) instead of `0.0.0.0/0`.
+
+#### References
+
+- [sg_open_ssh](docs/sg_open_ssh.md)
+</details>
+
+<details>
+<summary>**HIGH** — `aws_s3_bucket.bad_bucket` — S3 bucket has no server_side_encryption_configuration</summary>
+...
+</details>
+```
+
+This is the same markdown used in CI for the PR comment and in the uploaded artifact.
+
+---
+
+## Repo structure
 
 ```
 driftguard-ai/
-├── infra/              # Sample Terraform to scan
-├── policies/           # OPA Rego rules
-├── docs/               # Policy explanations (RAG corpus)
-├── scripts/            # Python logic
-├── reports/            # Generated outputs
-├── .github/
-│   └── workflows/      # CI/CD workflows
+├── infra/                 # Sample Terraform (AWS; deliberately insecure for demo)
+├── policies/
+│   ├── rego/              # OPA/Conftest rules (terraform plan JSON)
+│   └── examples/          # sample_plan.json (schema-aligned with terraform show -json)
+├── docs/                  # Remediation docs (What / Why / How to fix / References)
+├── scripts/               # Python: plan_runner, policy_runner, retrieval, explain, report, cli
+├── reports/               # Generated: findings.json, explanations.json, report.md
+├── .github/workflows/     # driftguard.yml (PR → plan/fallback → run → artifact + comment)
+├── Makefile               # install, fmt, lint, test, run-sample
 └── README.md
 ```
 
-## Quick start
+---
 
-1. Add Terraform in `infra/` to scan.
-2. Define policies in `policies/` (OPA Rego).
-3. Add policy docs in `docs/` for RAG.
-4. Run scripts in `scripts/` for scanning and reporting.
-5. Check `reports/` for generated outputs.
+## Development
+
+```bash
+make install          # .venv + pip install -e ".[dev]"
+make run-sample       # python -m scripts.cli --help
+make fmt && make lint
+make test
+```
+
+CLI: `plan`, `policy`, `explain`, `report`, `run`. From repo root: `python -m scripts.cli --help`.

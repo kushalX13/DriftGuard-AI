@@ -19,6 +19,12 @@ venv/
 reports/*.md
 !reports/.gitkeep
 
+# GitHub Pages build output
+.pages/
+
+# ML generated data
+ml/data/*.csv
+
 # IDE / OS
 .idea/
 .DS_Store

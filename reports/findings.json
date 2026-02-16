@@ -1,0 +1,86 @@
+{
+  "summary": {
+    "critical": 1,
+    "high": 3,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "findings": [
+    {
+      "id": "DG-SG-OPEN-SSH",
+      "severity": "CRITICAL",
+      "resource": "aws_security_group.open_ingress",
+      "message": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk",
+      "evidence": {
+        "msg": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk",
+        "metadata": {
+          "query": "data.main.deny"
+        }
+      },
+      "docs_keys": [
+        "sg_open_ssh"
+      ]
+    },
+    {
+      "id": "DG-RDS-NO-ENCRYPTION",
+      "severity": "HIGH",
+      "resource": "aws_db_instance.example",
+      "message": "RDS instance aws_db_instance.example has storage_encrypted disabled",
+      "evidence": {
+        "msg": "RDS instance aws_db_instance.example has storage_encrypted disabled",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "rds_encryption"
+      ]
+    },
+    {
+      "id": "DG-S3-NO-PUBLIC-ACCESS-BLOCK",
+      "severity": "HIGH",
+      "resource": "aws_s3_bucket.bad_bucket",
+      "message": "S3 bucket aws_s3_bucket.bad_bucket has no public access block (aws_s3_bucket_public_access_block)",
+      "evidence": {
+        "msg": "S3 bucket aws_s3_bucket.bad_bucket has no public access block (aws_s3_bucket_public_access_block)",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "s3_public_access"
+      ]
+    },
+    {
+      "id": "DG-S3-NO-ENCRYPTION",
+      "severity": "HIGH",
+      "resource": "aws_s3_bucket.bad_bucket",
+      "message": "S3 bucket aws_s3_bucket.bad_bucket has no server_side_encryption_configuration",
+      "evidence": {
+        "msg": "S3 bucket aws_s3_bucket.bad_bucket has no server_side_encryption_configuration",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "s3_encryption"
+      ]
+    },
+    {
+      "id": "DG-SG-OPEN-HTTP",
+      "severity": "MEDIUM",
+      "resource": "aws_security_group.open_ingress",
+      "message": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on HTTP (80) or HTTPS (443); consider WAF",
+      "evidence": {
+        "msg": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on HTTP (80) or HTTPS (443); consider WAF",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "sg_open_http"
+      ]
+    }
+  ]
+}

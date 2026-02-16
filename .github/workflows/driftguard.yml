@@ -1,0 +1,145 @@
+# DriftGuard CI: Terraform fmt/validate, plan → Conftest → explain → report.
+# Runs on PRs; uploads reports/ artifact; optionally comments report on PR.
+# No AWS credentials required (uses sample plan if terraform plan fails).
+
+name: DriftGuard
+
+on:
+  pull_request:
+    branches: [main, master]
+
+defaults:
+  run:
+    working-directory: .
+
+env:
+  TF_INPUT: "false"
+  # Fail the job if findings at this severity or higher exist (critical | high | medium | low | info). Omit or set to "none" to never fail.
+  FAIL_ON: "critical"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  driftguard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Conftest
+        run: |
+          # Pinned version: no GitHub API, no jq, no rate limits. Update periodically.
+          CONFTEST_VERSION="0.49.0"
+          ARCH=$(uname -m)
+          SYS=$(uname -s)
+          URL="https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_${SYS}_${ARCH}.tar.gz"
+          curl -sSfL "$URL" | tar xz
+          chmod +x conftest
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Terraform fmt check
+        working-directory: infra
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: infra
+        run: terraform validate
+
+      - name: Generate tfplan.json
+        id: plan
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          # No continue-on-error: we handle plan failure explicitly below. With -e, the if absorbs the exit code so the fallback runs.
+          # Single canonical path: infra/tfplan.json (we are in infra/ here).
+          if terraform plan -out=tfplan -no-color; then
+            terraform show -json tfplan > tfplan.json
+          else
+            echo "Plan failed (e.g. no AWS creds); using sample plan for policy run"
+            cp ../policies/examples/sample_plan.json tfplan.json
+          fi
+          echo "plan_path=infra/tfplan.json" >> "$GITHUB_OUTPUT"
+
+      - name: Run DriftGuard pipeline
+        run: python -m scripts.cli run --plan "${{ steps.plan.outputs.plan_path }}" --fail-on "${{ env.FAIL_ON }}"
+
+      - name: Upload reports artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: driftguard-reports
+          path: reports/
+          retention-days: 7
+
+      - name: Print report in logs
+        run: |
+          echo "## DriftGuard Report"
+          echo ""
+          if [ -f reports/report.md ]; then
+            cat reports/report.md
+          else
+            echo "No report.md found."
+          fi
+
+      # Only comment when PR is from same repo; fork PRs cannot be commented with GITHUB_TOKEN.
+      - name: Comment PR with report
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'reports/report.md';
+            if (!fs.existsSync(reportPath)) {
+              core.warning('report.md not found, skipping comment');
+              return;
+            }
+            let body = fs.readFileSync(reportPath, 'utf8');
+            const maxLen = 60000;
+            if (body.length > maxLen) {
+              body = body.slice(0, maxLen) + '\n\n... *(truncated; see driftguard-reports artifact for full report)*';
+            }
+            const marker = '<!-- driftguard -->';
+            body = body + '\n\n' + marker;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c => c.body && c.body.includes(marker));
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

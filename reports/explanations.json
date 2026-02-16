@@ -1,0 +1,121 @@
+{
+  "summary": {
+    "critical": 1,
+    "high": 3,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "findings": [
+    {
+      "id": "DG-SG-OPEN-SSH",
+      "severity": "CRITICAL",
+      "resource": "aws_security_group.open_ingress",
+      "message": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk",
+      "evidence": {
+        "msg": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on SSH (22) or RDP (3389): high risk",
+        "metadata": {
+          "query": "data.main.deny"
+        }
+      },
+      "docs_keys": [
+        "sg_open_ssh"
+      ],
+      "explanation": "## What this means\n\nAn AWS security group has an ingress rule that allows traffic from the entire internet (`0.0.0.0/0`) on port 22 (SSH) or port 3389 (RDP). Anyone on the internet can attempt to connect to those ports on resources using this security group.\n\n## Why it matters\n\n- **SSH (22)** and **RDP (3389)** are high-value targets for brute-force and credential stuffing. Exposing them to the world greatly increases compromise risk.\n- Compliance frameworks (e.g. CIS, PCI-DSS) typically require restricting administrative access to known IP ranges.\n- Open 0.0.0.0/0 on these ports is a common misconfiguration that leads to real incidents.\n\n## How to fix\n\nRestrict ingress to a known CIDR (e.g. VPN or bastion) and avoid 0.0.0.0/0 for 22 and 3389.\n\n**Terraform snippet:**\n\n```hcl\nresource \"aws_security_group\" \"example\" {\n  name        = \"restricted-ssh-rdp\"\n  description = \"SSH and RDP from office/VPN only\"\n\n  ingress {\n    from_port   = 22\n    to_port     = 22\n    protocol    = \"tcp\"\n    cidr_blocks = [\"10.0.0.0/8\"]  # or your VPN/bastion CIDR\n  }\n\n  ingress {\n    from_port   = 3389\n    to_port     = 3389\n    protocol    = \"tcp\"\n    cidr_blocks = [\"10.0.0.0/8\"]\n  }\n}\n```\n\nRemove or narrow any rule that has `cidr_blocks = [\"0.0.0.0/0\"]` with `from_port`/`to_port` covering 22 or 3389.\n\n## References\n\n- [AWS Security group rules](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html)\n- [CIS AWS Foundations – restrict SSH](https://www.cisecurity.org/benchmark/amazon_web_services)",
+      "citations": [
+        {
+          "doc_key": "sg_open_ssh",
+          "path": "docs/sg_open_ssh.md"
+        }
+      ]
+    },
+    {
+      "id": "DG-RDS-NO-ENCRYPTION",
+      "severity": "HIGH",
+      "resource": "aws_db_instance.example",
+      "message": "RDS instance aws_db_instance.example has storage_encrypted disabled",
+      "evidence": {
+        "msg": "RDS instance aws_db_instance.example has storage_encrypted disabled",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "rds_encryption"
+      ],
+      "explanation": "## What this means\n\nThe RDS DB instance does not have storage encryption enabled. Data at rest in the underlying EBS volumes and snapshots is stored unencrypted.\n\n## Why it matters\n\n- Compliance frameworks (PCI-DSS, HIPAA, etc.) typically require encryption of database storage.\n- Unencrypted snapshots or volume copies can expose sensitive data.\n- Encryption at rest is a baseline control for production databases.\n\n## How to fix\n\nSet `storage_encrypted = true` on the RDS instance. This cannot be changed after creation; to enable encryption on an existing instance you must create a new instance with encryption and migrate.\n\n**Terraform snippet:**\n\n```hcl\nresource \"aws_db_instance\" \"example\" {\n  identifier     = \"my-db\"\n  engine         = \"postgres\"\n  engine_version = \"15\"\n  instance_class = \"db.t3.micro\"\n\n  allocated_storage = 20\n  storage_encrypted = true\n\n  db_name  = \"app\"\n  username = \"admin\"\n  password = var.db_password\n}\n```\n\nFor MySQL/Postgres you can also reference a KMS key:\n\n```hcl\n  storage_encrypted = true\n  kms_key_id        = aws_kms_key.rds.arn\n```\n\n## References\n\n- [AWS RDS encryption at rest](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html)\n- [aws_db_instance storage_encrypted](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#storage_encrypted)",
+      "citations": [
+        {
+          "doc_key": "rds_encryption",
+          "path": "docs/rds_encryption.md"
+        }
+      ]
+    },
+    {
+      "id": "DG-S3-NO-PUBLIC-ACCESS-BLOCK",
+      "severity": "HIGH",
+      "resource": "aws_s3_bucket.bad_bucket",
+      "message": "S3 bucket aws_s3_bucket.bad_bucket has no public access block (aws_s3_bucket_public_access_block)",
+      "evidence": {
+        "msg": "S3 bucket aws_s3_bucket.bad_bucket has no public access block (aws_s3_bucket_public_access_block)",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "s3_public_access"
+      ],
+      "explanation": "## What this means\n\nThe S3 bucket does not have a public access block configuration. Without it, the bucket and its objects can become publicly accessible through bucket policies, ACLs, or accidental changes. AWS recommends blocking public access by default.\n\n## Why it matters\n\n- Public buckets are a leading cause of data leaks and compliance violations.\n- CIS and AWS best practices require blocking public access at the account or bucket level.\n- A single misapplied policy or ACL can expose all objects in the bucket.\n\n## How to fix\n\nAdd an `aws_s3_bucket_public_access_block` resource and set all four block options to `true`.\n\n**Terraform snippet:**\n\n```hcl\nresource \"aws_s3_bucket\" \"example\" {\n  bucket = \"my-bucket\"\n}\n\nresource \"aws_s3_bucket_public_access_block\" \"example\" {\n  bucket = aws_s3_bucket.example.id\n\n  block_public_acls       = true\n  block_public_policy     = true\n  ignore_public_acls      = true\n  restrict_public_buckets = true\n}\n```\n\nApply this to every bucket; only disable specific blocks if you have a documented use case (e.g. static website with a controlled policy).\n\n## References\n\n- [AWS Blocking public access to your S3 storage](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html)\n- [aws_s3_bucket_public_access_block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block)",
+      "citations": [
+        {
+          "doc_key": "s3_public_access",
+          "path": "docs/s3_public_access.md"
+        }
+      ]
+    },
+    {
+      "id": "DG-S3-NO-ENCRYPTION",
+      "severity": "HIGH",
+      "resource": "aws_s3_bucket.bad_bucket",
+      "message": "S3 bucket aws_s3_bucket.bad_bucket has no server_side_encryption_configuration",
+      "evidence": {
+        "msg": "S3 bucket aws_s3_bucket.bad_bucket has no server_side_encryption_configuration",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "s3_encryption"
+      ],
+      "explanation": "## What this means\n\nThe S3 bucket has no server-side encryption configuration. Data at rest in the bucket is stored unencrypted by default. Enabling server-side encryption (SSE) ensures objects are encrypted using AWS-managed or customer-managed keys.\n\n## Why it matters\n\n- Unencrypted buckets can expose sensitive data if the bucket is misconfigured, leaked, or compromised.\n- Many compliance standards (e.g. PCI-DSS, HIPAA) require encryption of data at rest.\n- Enabling SSE-S3 or SSE-KMS is a low-effort, high-impact hardening step.\n\n## How to fix\n\nAdd a `server_side_encryption_configuration` block to the bucket, or use the separate `aws_s3_bucket_server_side_encryption_configuration` resource.\n\n**Terraform snippet (inline on bucket):**\n\n```hcl\nresource \"aws_s3_bucket\" \"example\" {\n  bucket = \"my-bucket\"\n}\n\nresource \"aws_s3_bucket_server_side_encryption_configuration\" \"example\" {\n  bucket = aws_s3_bucket.example.id\n\n  rule {\n    apply_server_side_encryption_by_default {\n      sse_algorithm = \"AES256\"\n    }\n    bucket_key_enabled = true\n  }\n}\n```\n\n**Terraform snippet (older provider – rule block on bucket):**\n\n```hcl\nresource \"aws_s3_bucket\" \"example\" {\n  bucket = \"my-bucket\"\n\n  server_side_encryption_configuration {\n    rule {\n      apply_server_side_encryption_by_default {\n        sse_algorithm = \"AES256\"\n      }\n      bucket_key_enabled = true\n    }\n  }\n}\n```\n\nUse `AES256` for SSE-S3 or `aws:kms` (and optionally `kms_master_key_id`) for SSE-KMS.\n\n## References\n\n- [AWS S3 default encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-encryption.html)\n- [aws_s3_bucket_server_side_encryption_configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration)",
+      "citations": [
+        {
+          "doc_key": "s3_encryption",
+          "path": "docs/s3_encryption.md"
+        }
+      ]
+    },
+    {
+      "id": "DG-SG-OPEN-HTTP",
+      "severity": "MEDIUM",
+      "resource": "aws_security_group.open_ingress",
+      "message": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on HTTP (80) or HTTPS (443); consider WAF",
+      "evidence": {
+        "msg": "Security group aws_security_group.open_ingress allows 0.0.0.0/0 on HTTP (80) or HTTPS (443); consider WAF",
+        "metadata": {
+          "query": "data.main.warn"
+        }
+      },
+      "docs_keys": [
+        "sg_open_http"
+      ],
+      "explanation": "## What this means\n\nAn AWS security group has an ingress rule that allows traffic from the entire internet (`0.0.0.0/0`) on port 80 (HTTP) or 443 (HTTPS). The service is reachable by anyone on the internet.\n\n## Why it matters\n\n- Public web traffic is expected for many apps, but exposing 80/443 to 0.0.0.0/0 without WAF or rate limiting increases abuse and attack surface.\n- Compliance (e.g. PCI-DSS) often requires WAF or additional controls when accepting public web traffic.\n- Use a WAF (e.g. AWS WAF, CloudFront with WAF) to add rate limiting, bot protection, and rule sets.\n\n## How to fix\n\nKeep 80/443 open only if intentional; add AWS WAF in front (e.g. CloudFront or ALB with WAF) and restrict by geography or rate if needed.\n\n**Terraform snippet (WAF in front of ALB):**\n\n```hcl\nresource \"aws_security_group\" \"web\" {\n  name        = \"allow-http-https\"\n  description = \"HTTP/HTTPS from internet; put WAF in front\"\n\n  ingress {\n    from_port   = 443\n    to_port     = 443\n    protocol    = \"tcp\"\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n  ingress {\n    from_port   = 80\n    to_port     = 80\n    protocol    = \"tcp\"\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n}\n\n# Add aws_wafv2_web_acl and associate with ALB/CloudFront.\n```\n\nIf the service is internal only, restrict `cidr_blocks` to your VPN or VPC CIDRs instead of `0.0.0.0/0`.\n\n## References\n\n- [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/)\n- [CIS AWS Foundations – restrict public access](https://www.cisecurity.org/benchmark/amazon_web_services)",
+      "citations": [
+        {
+          "doc_key": "sg_open_http",
+          "path": "docs/sg_open_http.md"
+        }
+      ]
+    }
+  ]
+}
