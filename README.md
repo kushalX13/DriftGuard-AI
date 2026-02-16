@@ -86,7 +86,9 @@ On **push to main** (or **master**), the **Pages** workflow runs the pipeline, c
 
 (e.g. `https://kushalx13.github.io/DriftGuard-AI/`)
 
-**One-time setup:** In the repo go to **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**. After the first push to main, the workflow will publish the report; the root URL serves the latest report as a clean HTML page.
+**One-time setup:** GitHub Pages must be enabled first. On the free plan, **Pages only works for public repos**: make the repo public (Settings → General → Change repository visibility), then go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. After the first push to main, the workflow will publish the report; the root URL serves the latest report as a clean HTML page. (To keep the repo private, skip Pages—the PR workflow still uploads the report as an artifact and comments on PRs.)
+
+**Deploy failed with 404?** Enable Pages: ensure the repo is public (or you have Enterprise for private Pages), then set **Source** to **GitHub Actions** under Settings → Pages.
 
 ---
 
