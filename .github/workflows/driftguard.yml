@@ -72,10 +72,9 @@ jobs:
         id: plan
         working-directory: infra
         run: |
-          set -euo pipefail
-          # No continue-on-error: we handle plan failure explicitly below. With -e, the if absorbs the exit code so the fallback runs.
-          # Single canonical path: infra/tfplan.json (we are in infra/ here).
-          if terraform plan -out=tfplan -no-color; then
+          set -eu
+          terraform plan -out=tfplan -no-color || true
+          if [ -f tfplan ]; then
             terraform show -json tfplan > tfplan.json
           else
             echo "Plan failed (e.g. no AWS creds); using sample plan for policy run"
@@ -84,6 +83,7 @@ jobs:
           echo "plan_path=infra/tfplan.json" >> "$GITHUB_OUTPUT"
 
       - name: Use ML model (if available)
+        continue-on-error: true
         uses: dawidd6/action-download-artifact@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
