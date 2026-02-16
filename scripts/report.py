@@ -4,6 +4,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from scripts.schemas import ExplanationsReport, FindingsReport
 
@@ -120,7 +121,10 @@ def build_markdown(
     """Build full report markdown. risk_scores_by_key maps finding_key -> {predicted_severity, risk_score}."""
     if run_timestamp is None:
         run_timestamp = datetime.now(timezone.utc)
-    ts = run_timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+    if run_timestamp.tzinfo is None:
+        run_timestamp = run_timestamp.replace(tzinfo=timezone.utc)
+    est = run_timestamp.astimezone(ZoneInfo("America/New_York"))
+    ts = est.strftime("%Y-%m-%d %H:%M:%S ET")
 
     summary = data.get("summary") or {}
     findings = data.get("findings") or []
