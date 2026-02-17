@@ -46,9 +46,13 @@ python -m scripts.cli plan --tf-dir infra --out infra/tfplan.json --fallback-sam
 python -m scripts.cli run --plan infra/tfplan.json
 # Optional: add ML severity/risk scoring
 python -m scripts.cli run --plan infra/tfplan.json --enable-ml
+# Optional: humanize explanations with OpenAI (do not put the key in git)
+#   pip install '.[llm]'
+#   cp .env.example .env   # then edit .env and set OPENAI_API_KEY=sk-...
+#   python -m scripts.cli run --plan infra/tfplan.json --use-llm
 ```
 
-Then open `reports/report.md`. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
+Then open `reports/report.md`. **API key (for `--use-llm`):** put it in a **`.env`** file (already in `.gitignore`). Copy `.env.example` to `.env`, add your key there; never commit `.env` or the key to git. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
 
 **Optional step-by-step:**
 
