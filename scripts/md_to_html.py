@@ -274,24 +274,15 @@ def _add_finding_classes(html: str) -> str:
     )
 
 
-def convert(md_path: str | Path, out_path: str | Path, title: str = "DriftGuard Policy Report") -> Path:
-    """Read markdown file, convert to HTML with template, write to out_path. Returns out_path."""
-    md_path = Path(md_path)
-    out_path = Path(out_path)
-    if not md_path.exists():
-        raise FileNotFoundError(f"Markdown file not found: {md_path}")
-
-    raw = md_path.read_text(encoding="utf-8")
-    # GitHub-style: tables, fenced code, nl2br; raw HTML (e.g. report-takeaway div) allowed
+def markdown_to_html_string(md_content: str, title: str = "DriftGuard Policy Report") -> str:
+    """Convert markdown string to full HTML document string (for API / in-memory use)."""
     html_body = markdown.markdown(
-        raw,
+        md_content,
         extensions=["tables", "fenced_code", "nl2br"],
         extension_configs={"tables": {}},
     )
     html_body = _add_finding_classes(html_body)
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -309,8 +300,20 @@ def convert(md_path: str | Path, out_path: str | Path, title: str = "DriftGuard 
 {html_body}
 </div>
 </body>
-</html>
-"""
+</html>"""
+
+
+def convert(md_path: str | Path, out_path: str | Path, title: str = "DriftGuard Policy Report") -> Path:
+    """Read markdown file, convert to HTML with template, write to out_path. Returns out_path."""
+    md_path = Path(md_path)
+    out_path = Path(out_path)
+    if not md_path.exists():
+        raise FileNotFoundError(f"Markdown file not found: {md_path}")
+
+    raw = md_path.read_text(encoding="utf-8")
+    # GitHub-style: tables, fenced code, nl2br; raw HTML (e.g. report-takeaway div) allowed
+    html = markdown_to_html_string(raw, title=title)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     return out_path
 

@@ -2,6 +2,8 @@
 
 **Catch Terraform misconfigs before apply.** DriftGuard runs OPA/Conftest policies on your plan JSON, normalizes findings, attaches remediation docs (no LLM), and emits a PR-ready report. One command locally or in CI. **Policy engine is authoritative; ML risk scoring is optional and experimental.**
 
+**Built with:** Python 3.11, FastAPI, OPA/Rego (Conftest), Terraform, optional MLflow, GitHub Actions, GitHub Pages.
+
 ---
 
 ## Architecture
@@ -22,7 +24,18 @@
               Report generator  ──►  report.md  (summary table + collapsible findings)
 ```
 
-**Policies today:** deny security groups with 0.0.0.0/0 on SSH (22) or RDP (3389); warn S3 buckets without server-side encryption. Extend by adding Rego in `policies/rego/` and docs in `docs/`.
+**Policies today:** deny security groups with 0.0.0.0/0 on SSH (22) or RDP (3389); warn S3 buckets without server-side encryption or without public access block; warn security groups with 0.0.0.0/0 on HTTP (80) or HTTPS (443); warn RDS instances without storage encryption. Extend by adding Rego in `policies/rego/` and docs in `docs/`.
+
+---
+
+## Ways to try DriftGuard
+
+| Way | What you do | Best for |
+|-----|-------------|----------|
+| **One-command demo** | `make demo` or `./demo.sh` | Run the full pipeline locally and open the report. |
+| **Run in GitHub** | Use template → open in Codespaces → edit Terraform → `make demo` | Real repo, real pipeline; no install on your machine. |
+| **Live run** | Start API (`make api`), open http://localhost:8000/live — sample plan is pre-loaded; paste your own or use **Load sample 2** → Run | See the report generated from *your* plan (real run). |
+| **API** | `POST /api/run` with Terraform plan JSON → report HTML/JSON; `GET /api/sample-plan` (optional `?variant=2`) for sample plans | Integrate into your own app or CI. |
 
 ---
 
@@ -52,7 +65,11 @@ python -m scripts.cli run --plan infra/tfplan.json --enable-ml
 #   python -m scripts.cli run --plan infra/tfplan.json --use-llm
 ```
 
-Then open `reports/report.md`. **API key (for `--use-llm`):** put it in a **`.env`** file (already in `.gitignore`). Copy `.env.example` to `.env`, add your key there; never commit `.env` or the key to git. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
+Then open `reports/report.md`. Or run **one command**: `make demo` (or `./demo.sh`) to use a sample plan, run the pipeline, and open the HTML report.
+
+**API & live run:** Run `make install` then `make api` (or `pip install '.[api]'` and `python -m scripts.cli api`). Open http://localhost:8000/live — a sample plan is pre-loaded; click Run or paste your own plan JSON. API docs: http://localhost:8000/docs.
+
+**API key (for `--use-llm`):** put it in a **`.env`** file (already in `.gitignore`). Copy `.env.example` to `.env`, add your key there; never commit `.env` or the key to git. With real Terraform and creds, drop `--fallback-sample` (and `--sample-only`) and run the same `plan` then `run` commands.
 
 **Optional step-by-step:**
 
@@ -62,6 +79,13 @@ python -m scripts.cli policy -p infra/tfplan.json -o reports/findings.json
 python -m scripts.cli explain -f reports/findings.json -o reports/explanations.json
 python -m scripts.cli report -e reports/explanations.json -o reports/report.md
 ```
+
+### Run in GitHub (template + Codespaces)
+
+1. **Use this template** (if the repo is set as a template) or clone the repo.
+2. **Open in GitHub Codespaces** (Code → Codespaces → Create codespace). No local install.
+3. In the terminal: `make install` (or `pip install -e ".[dev]"`), install Conftest (`brew install conftest` or [install script](https://www.conftest.dev/install/)), then `make demo`.
+4. Edit `infra/*.tf` (e.g. add a security group with `0.0.0.0/0`), run `terraform plan -out=tfplan` and `terraform show -json tfplan > infra/tfplan.json`, then `python -m scripts.cli run --plan infra/tfplan.json` to see the report for *your* plan.
 
 ---
 
@@ -84,13 +108,13 @@ No AWS credentials or secrets required for CI; the “plan fails → sample fall
 
 ## Demo report (GitHub Pages)
 
-On **push to main** (or **master**), the **Pages** workflow runs the pipeline, converts `report.md` to HTML, and deploys to GitHub Pages. You get a stable CV demo link:
+On **push to main** (or **master**), the **Pages** workflow builds an **interactive demo** and deploys it to GitHub Pages. Visitors can choose a scenario (compliant Terraform, one mistake, or multiple issues) and see the report that DriftGuard would produce — “I did this, and this is what it found.”
 
 **`https://<owner>.github.io/<repo>/`**
 
 (e.g. `https://kushalx13.github.io/DriftGuard-AI/`)
 
-**One-time setup:** GitHub Pages must be enabled first. On the free plan, **Pages only works for public repos**: make the repo public (Settings → General → Change repository visibility), then go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. After the first push to main, the workflow will publish the report; the root URL serves the latest report as a clean HTML page. (To keep the repo private, skip Pages—the PR workflow still uploads the report as an artifact and comments on PRs.)
+**One-time setup:** GitHub Pages must be enabled first. On the free plan, **Pages only works for public repos**: make the repo public (Settings → General → Change repository visibility), then go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. After the first push to main, the workflow publishes the demo; the root URL serves the interactive picker — choose a scenario to see that report. (To keep the repo private, skip Pages—the PR workflow still uploads the report as an artifact and comments on PRs.)
 
 **Deploy failed with 404?** Enable Pages: ensure the repo is public (or you have Enterprise for private Pages), then set **Source** to **GitHub Actions** under Settings → Pages.
 
@@ -160,7 +184,7 @@ driftguard-ai/
 │   ├── rego/              # OPA/Conftest rules (terraform plan JSON)
 │   └── examples/          # sample_plan.json (schema-aligned with terraform show -json)
 ├── docs/                  # Remediation docs (What / Why / How to fix / References)
-├── scripts/               # Python: plan_runner, policy_runner, retrieval, explain, report, cli
+├── scripts/               # Python: cli, plan_runner, policy_runner, explain, report, api_server, md_to_html, build_demo_pages, build_baseline_model
 ├── reports/               # Generated: findings.json, explanations.json, report.md
 ├── .github/workflows/     # driftguard.yml (PR → plan/fallback → run → artifact + comment)
 ├── Makefile               # install, fmt, lint, test, run-sample
@@ -191,4 +215,10 @@ make fmt && make lint
 make test
 ```
 
-CLI: `plan`, `policy`, `explain`, `report`, `run`. From repo root: `python -m scripts.cli --help`.
+CLI: `plan`, `policy`, `explain`, `report`, `run`, `api`, `synth`, `train`. From repo root: `python -m scripts.cli --help`.
+
+---
+
+## License
+
+MIT.

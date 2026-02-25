@@ -1,12 +1,25 @@
 """Generate reports/report.md from findings + explanations (clean layout for PR/Pages)."""
 
+import html
 import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import markdown
 from scripts.schemas import ExplanationsReport, FindingsReport
+
+
+def _escape(s: str) -> str:
+    return html.escape(str(s), quote=True)
+
+
+def _md(s: str) -> str:
+    """Render markdown to HTML (bold, lists, code, links) for display."""
+    if not s or not s.strip():
+        return ""
+    return markdown.markdown(s.strip(), extensions=["nl2br", "fenced_code"], output_format="html5").strip()
 
 
 def _parse_explanation_sections(explanation: str) -> dict[str, str]:
@@ -42,7 +55,7 @@ def _summary_table(summary: dict) -> str:
 
 
 def _finding_section(finding: dict, score: dict | None = None) -> str:
-    """One collapsible section for a finding (GitHub <details>/<summary>)."""
+    """One collapsible section: clean HTML only (no raw markdown * or `)."""
     severity = finding.get("severity", "INFO")
     resource = finding.get("resource", "—")
     message = finding.get("message", "")
@@ -50,60 +63,63 @@ def _finding_section(finding: dict, score: dict | None = None) -> str:
     explanation = finding.get("explanation", "")
     citations = finding.get("citations") or []
 
-    summary_line = f"**{severity}** — `{resource}` — {message}"
-    if len(summary_line) > 100:
-        summary_line = summary_line[:97] + "…"
+    r = _escape(resource)
+    msg_esc = _escape(message)
+    # Truncate only if very long; break at word boundary so it doesn't look cut off
+    max_msg = 180
+    if len(msg_esc) > max_msg:
+        cut = msg_esc[: max_msg + 1].rfind(" ")
+        msg_short = (msg_esc[: cut] if cut > max_msg // 2 else msg_esc[: max_msg]) + "…"
+    else:
+        msg_short = msg_esc
+    summary_html = f'<span class="severity-badge severity-{severity.lower()}">{_escape(severity)}</span> <code class="resource-id">{r}</code> <span class="summary-msg">— {msg_short}</span>'
 
     sections = _parse_explanation_sections(explanation)
     why = sections.get("Why it matters", "").strip()
     how = sections.get("How to fix", "").strip()
 
-    body_parts = [
-        f"- **Resource:** `{resource}`",
-        f"- **Rule:** `{rule_id}`",
-        f"- **Message:** {message}",
-        "",
+    lines = [
+        "<ul class=\"finding-meta\">",
+        f"<li><strong>Resource</strong> <code>{r}</code></li>",
+        f"<li><strong>Rule</strong> <code>{_escape(rule_id)}</code></li>",
+        f"<li><strong>Message</strong> {_escape(message)}</li>",
     ]
     if score:
         conf = score.get("confidence")
         low_confidence = isinstance(conf, (int, float)) and conf < 0.6
         if low_confidence:
-            body_parts.append("- **Predicted severity:** (low confidence)")
+            lines.append("<li><strong>Predicted severity</strong> (low confidence)</li>")
         else:
-            body_parts.append(f"- **Predicted severity:** {score.get('predicted_severity', '—')}")
+            lines.append(f"<li><strong>Predicted severity</strong> {_escape(str(score.get('predicted_severity', '—')))}</li>")
         if not low_confidence:
             rs = score.get("risk_score")
-            body_parts.append(f"- **Risk score:** {rs:.2f}" if isinstance(rs, (int, float)) else "- **Risk score:** —")
+            if isinstance(rs, (int, float)):
+                lines.append(f"<li><strong>Risk score</strong> {rs:.2f}</li>")
             if isinstance(conf, (int, float)):
-                body_parts.append(f"- **Confidence:** {conf:.2f}")
-        body_parts.append("")
+                lines.append(f"<li><strong>Confidence</strong> {conf:.2f}</li>")
+    lines.append("</ul>")
+
     if why:
-        body_parts.append("#### Why it matters\n")
-        body_parts.append(why)
-        body_parts.append("")
+        lines.append('<h4>Why it matters</h4>')
+        lines.append(f'<div class="finding-body">{_md(why)}</div>')
     if how:
-        body_parts.append("#### How to fix\n")
-        body_parts.append(how)
-        body_parts.append("")
+        lines.append('<h4>How to fix</h4>')
+        lines.append(f'<div class="finding-body">{_md(how)}</div>')
     if not why and not how and explanation:
-        body_parts.append("#### Details\n")
-        body_parts.append(explanation)
-        body_parts.append("")
+        lines.append('<h4>Details</h4>')
+        lines.append(f'<div class="finding-body">{_md(explanation)}</div>')
     if citations:
-        body_parts.append("#### References\n")
+        lines.append("<h4>References</h4>")
+        lines.append("<ul>")
         for c in citations:
             path = c.get("path", f"docs/{c.get('doc_key', '')}.md")
-            key = c.get("doc_key", path)
-            body_parts.append(f"- [{key}]({path})")
-        body_parts.append("")
+            key = _escape(c.get("doc_key", path))
+            lines.append(f'<li><a href="{_escape(path)}">{key}</a></li>')
+        lines.append("</ul>")
 
-    body = "\n".join(body_parts)
-    return f"""<details>
-<summary>{summary_line}</summary>
-
-{body}
-</details>
-"""
+    body = "\n".join(lines)
+    sev = severity.lower()
+    return f"<details class=\"finding severity-{sev}\">\n<summary>{summary_html}</summary>\n<div class=\"finding-inner\">\n{body}\n</div>\n</details>"
 
 
 def _finding_key(finding: dict) -> str:
@@ -134,9 +150,9 @@ def build_markdown(
     parts = [
         "# DriftGuard Policy Report",
         "",
-        f"*Generated: {ts}*",
+        f'<p class="report-meta">*Generated: {ts}*</p>',
         "",
-        "**Policy severity is authoritative. ML risk scoring is experimental and may disagree.**",
+        '<p class="report-disclaimer">**Policy severity is authoritative. ML risk scoring is experimental and may disagree.**</p>',
         "",
         ('<div class="report-takeaway">We found ' + str(total) + ' issue(s). Fix Critical and High first, then review the rest.</div>' if total else '<div class="report-takeaway">No policy issues found.</div>'),
         "",

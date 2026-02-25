@@ -25,6 +25,10 @@ llm = [
     "openai>=1.0",
     "python-dotenv>=1.0",
 ]
+api = [
+    "uvicorn[standard]>=0.24",
+    "fastapi>=0.104",
+]
 
 [build-system]
 requires = ["setuptools>=61"]

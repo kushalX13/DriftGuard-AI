@@ -1,15 +1,19 @@
 # Policy examples
 
-- **`sample_plan.json`** — Terraform plan JSON shaped like `terraform show -json` output: `format_version`, `resource_changes[]` with `address`, `mode`, `type`, `name`, `change.after` (and `change.before`). Matches what Rego reads. Triggers multiple rules:
-  - **deny**: `aws_security_group.open_ingress` — 0.0.0.0/0 on SSH (22) or RDP (3389).
-  - **warn**: same SG — 0.0.0.0/0 on HTTP (80) or HTTPS (443).
-  - **warn**: `aws_s3_bucket.bad_bucket` — no encryption, no public access block.
-  - **warn**: `aws_db_instance.example` — storage_encrypted not set.
+Sample Terraform plan JSONs (same shape as `terraform show -json`). Use them to test Conftest or to drive the demo so the report isn’t always the same.
 
-Use it to test Conftest without running Terraform:
+| File | Purpose | Findings |
+|------|---------|----------|
+| **`sample_plan_clean.json`** | Compliant resources (restricted SG, encrypted RDS, S3 encrypted + public access block) | **0** — report shows “No policy issues found” |
+| **`sample_plan_medium.json`** | One misconfiguration (open SSH) | **1** critical |
+| **`sample_plan.json`** | Multiple misconfigurations | **5** (1 critical, 4 warn) |
+
+The GitHub Pages workflow picks one of these per run (by `run_id % 3`), so each deploy can show a passing report, one finding, or the full set — like fixing issues and re-running in the real world.
+
+**Test Conftest without Terraform:**
 
 ```bash
 conftest test policies/examples/sample_plan.json -p policies/rego
+conftest test policies/examples/sample_plan_clean.json -p policies/rego   # 0 findings
+conftest test policies/examples/sample_plan_medium.json -p policies/rego  # 1 deny
 ```
-
-Expected: at least one **deny** and one **warn** (Conftest exits non-zero).

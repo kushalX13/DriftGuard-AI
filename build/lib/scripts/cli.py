@@ -307,6 +307,20 @@ def run(
 
 
 @app.command()
+def api(
+    port: int = typer.Option(8000, "--port", "-p", help="Port for the API server"),
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
+) -> None:
+    """Start the DriftGuard API server (POST plan JSON → get report). Requires: pip install '.[api]' and conftest in PATH."""
+    try:
+        import uvicorn
+        uvicorn.run("scripts.api_server:app", host=host, port=port, reload=False)
+    except ImportError:
+        typer.echo("Install the API extra: pip install '.[api]'", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
 def synth(
     out: str = typer.Option(
         "ml/data/synthetic_findings.csv",

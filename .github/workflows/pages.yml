@@ -48,40 +48,11 @@ jobs:
           chmod +x conftest
           sudo mv conftest /usr/local/bin/
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.5.0"
-          terraform_wrapper: false
+      - name: Ensure infra dir
+        run: mkdir -p infra
 
-      - name: Terraform init
-        working-directory: infra
-        run: terraform init -backend=false
-
-      - name: Generate tfplan.json
-        id: plan
-        working-directory: infra
-        run: |
-          set -eu
-          # Pages demo: always use sample plan so the live site shows a full report (no AWS creds in CI)
-          cp ../policies/examples/sample_plan.json tfplan.json
-          echo "plan_path=infra/tfplan.json" >> "$GITHUB_OUTPUT"
-
-      - name: Use ML model (if available)
-        continue-on-error: true
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: train.yml
-          name: severity-model
-          path: ml/models
-          if_no_artifact_found: ignore
-
-      - name: Run DriftGuard pipeline
-        run: python -m scripts.cli run --plan "${{ steps.plan.outputs.plan_path }}" --fail-on "${{ env.FAIL_ON }}"
-
-      - name: Convert report to HTML
-        run: python -m scripts.md_to_html reports/report.md .pages/index.html
+      - name: Build interactive demo pages
+        run: python -m scripts.build_demo_pages
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
